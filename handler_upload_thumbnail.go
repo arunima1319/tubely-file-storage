@@ -9,6 +9,8 @@ import (
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
 	"mime"
+	"crypto/rand"
+	"encoding/base64"
 )
 
 func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Request) {
@@ -54,8 +56,12 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusBadRequest, "invalid media type", nil)
 		return
 	}
-	
-	assetPath := getAssetPath(videoID, mediaType)
+
+	b := make([]byte, 32)
+	rand.Read(b)
+	str := base64.RawURLEncoding.EncodeToString(b)
+
+	assetPath := getAssetPath(str, mediaType)
 	assetDiskPath := cfg.getAssetDiskPath(assetPath)
 
 	dst, err := os.Create(assetDiskPath)
