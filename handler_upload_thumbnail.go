@@ -5,8 +5,7 @@ import (
 	"net/http"
 	"io"
 	"errors"
-	"encoding/base64"
-
+	"os"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
 )
@@ -51,9 +50,19 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	dat, err := io.ReadAll(file)
+	assetPath := getAssetPath(videoID, mediaType)
+	assetDiskPath := cfg.getAssetDiskPath(assetPath)
+
+	dst, err := os.Create(assetDiskPath)
 	if err!=nil{
-		respondWithError(w, http.StatusInternalServerError, "unable to read data from file", err)
+		respondWithError(w, http.StatusInternalServerError, "could not create file on server", err)
+		return
+	}
+	defer dst.Close()
+
+	_, err = io.Copy(dst, file)
+	if err!=nil{
+		respondWithError(w, http.StatusInternalServerError, "could not copy contents to file", err)
 		return
 	}
 
@@ -63,15 +72,14 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
     fmt.Printf("jwt userID: %s, video ownerID: %s\n", userID, video.UserID)
+
 	if video.UserID != userID{
 		respondWithError(w, http.StatusUnauthorized, "authenticated user is not owner of video", errors.New("not authorized"))
 		return
 	}
-	
-	imageDataString := base64.StdEncoding.EncodeToString(dat)
-	datURL := fmt.Sprintf("data:%s;base64,%s", mediaType, imageDataString)
 
-	video.ThumbnailURL = &datURL
+	assetURL := cfg.getAssetURL(assetPath)
+	video.ThumbnailURL = &assetURL
 
 
 	err = cfg.db.UpdateVideo(video)
