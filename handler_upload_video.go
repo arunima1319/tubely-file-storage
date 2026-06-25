@@ -12,6 +12,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"log"
 )
 
 func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request) {
@@ -82,10 +83,24 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 
 	tmpFile.Seek(0, io.SeekStart)
 
+	aspectRatio, err := getVideoAspectRatio(tmpFile.Name())
+	if err!=nil{
+		respondWithError(w, http.StatusInternalServerError, "could not get aspect ratio", err)
+	}
+	log.Printf("aspectRatio: %s", aspectRatio)
+
 	bucketString := "tubely-1123581321"
 	b := make([]byte, 32)
 	rand.Read(b)
-	key := base64.RawURLEncoding.EncodeToString(b)
+	keyRand := base64.RawURLEncoding.EncodeToString(b)
+	var key string
+	if aspectRatio == "16:9"{
+		key = "landscape/" + keyRand
+	}else if aspectRatio == "9:16"{
+		key = "portrait/" + keyRand
+	}else{
+		key = "other/" + keyRand
+	}
 
 	putObjectInput := &s3.PutObjectInput{
 		Bucket: &bucketString,
@@ -94,7 +109,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		ContentType: &mediaType,
 	}
 
-	_, err = cfg.s3Client.PutObject(r.Context(), putObjectInput)
+	_, err = cfg.s3Client.PutObject(r.Context(), putObjectInput)	
 	if err!= nil{
 		respondWithError(w, http.StatusInternalServerError, "could not put object in bucket", err)
 		return
