@@ -72,7 +72,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "could not create file on server", err)
 		return
 	}
-	defer os.Remove("tubely-upload.mp4")
+	defer os.Remove(tmpFile.Name())
 	defer tmpFile.Close()
 
 	_, err = io.Copy(tmpFile, file)
@@ -86,10 +86,25 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	aspectRatio, err := getVideoAspectRatio(tmpFile.Name())
 	if err!=nil{
 		respondWithError(w, http.StatusInternalServerError, "could not get aspect ratio", err)
+		return
 	}
 	log.Printf("aspectRatio: %s", aspectRatio)
 
-	bucketString := "tubely-1123581321"
+	processedVideo, err := processVideoForFastStart(tmpFile.Name())
+	if err!=nil{
+		respondWithError(w, http.StatusInternalServerError, "could not process video", err)
+		return
+	}
+
+	processedFile, err := os.Open(processedVideo)
+	if err!=nil{
+		respondWithError(w, http.StatusInternalServerError, "could not open processed file", err)
+		return
+	}
+	defer os.Remove(processedVideo)
+	defer processedFile.Close()
+
+	bucketString := "tubely-private-1123581321"
 	b := make([]byte, 32)
 	rand.Read(b)
 	keyRand := base64.RawURLEncoding.EncodeToString(b)
@@ -105,7 +120,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	putObjectInput := &s3.PutObjectInput{
 		Bucket: &bucketString,
 		Key: &key,
-		Body: tmpFile,
+		Body: processedFile,
 		ContentType: &mediaType,
 	}
 
@@ -115,12 +130,19 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	videoURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", cfg.s3Bucket, cfg.s3Region, key)
+	//videoURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", cfg.s3Bucket, cfg.s3Region, key)
+	videoURL := fmt.Sprintf("%s,%s", cfg.s3Bucket, key)
 	video.VideoURL = &videoURL
 
 	err = cfg.db.UpdateVideo(video)
 	if err!= nil{
 		respondWithError(w, http.StatusInternalServerError, "could not update video metadata", err)
+		return
+	}
+
+	video, err = cfg.dbVideoToSignedVideo(video)
+	if err!= nil{
+		respondWithError(w, http.StatusInternalServerError, "could not get presigned video URL", err)
 		return
 	}
 
